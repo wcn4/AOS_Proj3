@@ -8,6 +8,16 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
+// New libraries:
+
+#include <sys/stat.h>
+#include <sys/file.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <cstring>
+#include <dirent.h>
+#include <errno.h>
+
 using namespace std;
 
 #define PASS "\033[32;1m PASS \033[0m\n"
@@ -23,8 +33,6 @@ extern int do_verbose;
 typedef struct gtfs {
     string dirname;
     // TODO: Add any additional fields if necessary
-
-    bool verbose;
 } gtfs_t;
 
 typedef struct file {
