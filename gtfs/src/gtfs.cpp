@@ -12,6 +12,7 @@ gtfs_t* gtfs_init(string directory, int verbose_flag) {
     VERBOSE_PRINT(do_verbose, "Initializing GTFileSystem inside directory " << directory << "\n");
     //TODO: Add any additional initializations and checks, and complete the functionality
 
+
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns non NULL.
     return gtfs;
 }
@@ -96,6 +97,8 @@ write_t* gtfs_write_file(gtfs_t* gtfs, file_t* fl, int offset, int length, const
     }
     //TODO: Add any additional initializations and checks, and complete the functionality
 
+    //Modify in memmory copy of the file but not the actual file
+
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns non NULL.
     return write_id;
 }
@@ -109,6 +112,9 @@ int gtfs_sync_write_file(write_t* write_id) {
         return ret;
     }
     //TODO: Add any additional initializations and checks, and complete the functionality
+
+    // Writes the commit to the log
+    // Maybe store a strict metadata struct?
 
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns number of bytes written.
     return ret;

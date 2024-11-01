@@ -23,12 +23,19 @@ extern int do_verbose;
 typedef struct gtfs {
     string dirname;
     // TODO: Add any additional fields if necessary
+
+    bool verbose;
 } gtfs_t;
 
 typedef struct file {
     string filename;
     int file_length;
     // TODO: Add any additional fields if necessary
+    char *data; // In memory copy of the data
+    
+    //Log file path
+    string log_path;
+
 } file_t;
 
 typedef struct write {
@@ -37,7 +44,23 @@ typedef struct write {
     int length;
     char *data;
     // TODO: Add any additional fields if necessary
+
+    int synced; // 0: not synced, 1: synced
+    int aborted; // 0: not aborted, 1: aborted
+    char *old_data; // old data before write
 } write_t;
+
+typedef struct log_meta {
+    int length; // Total length of the log file
+    int num_commits;
+} log_meta_t;
+
+// Want a small commit metadata struct
+typedef struct commit {
+    int offset;
+    int length;
+    int commited; // 0: not commited, 1: commited (this is to ensure commits are not corrupted)
+} commit_t;
 
 // GTFileSystem basic API calls
 
