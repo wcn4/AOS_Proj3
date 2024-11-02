@@ -43,6 +43,7 @@ typedef struct file {
     
     //Log file path
     string log_path;
+    gtfs *gtfs; //This is to simplify sync implementation
 
 } file_t;
 
@@ -53,6 +54,7 @@ typedef struct write {
     char *data;
     // TODO: Add any additional fields if necessary
 
+    file_t *fl; // Allows for easy abort implementation
     int synced; // 0: not synced, 1: synced
     int aborted; // 0: not aborted, 1: aborted
     char *old_data; // old data before write

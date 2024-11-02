@@ -6,6 +6,22 @@
 
 int do_verbose;
 
+// Helper function to acquire a file lock
+bool acquire_lock(int fd) {
+    if (flock(fd, LOCK_EX) != 0) {
+        return false;
+    }
+    return true;
+}
+
+// Helper function to release a file lock
+bool release_lock(int fd) {
+    if (flock(fd, LOCK_UN) != 0) {
+        return false;
+    }
+    return true;
+}
+
 // Helper function to create a directory if it doesn't exist
 bool create_directory(const string& path) {
     struct stat st;
@@ -48,16 +64,25 @@ bool write_commit_log(const string& log_path, const commit_t& commit_meta, const
     return true;
 }
 
-// Helper function to apply logs
-bool apply_logs(const string& log_path, file_t* fl) {
-    FILE* log_file = fopen(log_path.c_str(), "rb");
-    if (!log_file) return false;
+// Helper function to apply logs 
+/*
+bool apply_log(string directory, string filename) {
+    string log_path = get_log_path(directory, filename);
+    string file_path = directory + "/" + filename;
 
+    FILE* log_file = fopen(log_path.c_str(), "rb");
+    FILE* fp = fopen(file_path.c_str(), "rb+");
+    if (!log_file) return false;
+    if (!fp) return false;
+
+    // Opens log file, and then read commits from log and write them to the file
     commit_t commit_meta;
     while (fread(&commit_meta, sizeof(commit_t), 1, log_file) == 1) {
         if (commit_meta.commited) {
             // Apply the commit
-            memcpy(fl->data + commit_meta.offset, fl->data, commit_meta.length);
+            // This is wrong, this should be writing to the file, not the in memory copy?
+            //memcpy(fl->data + commit_meta.offset, fl->data, commit_meta.length);
+
         }
         // Skip the data
         fseek(log_file, commit_meta.length, SEEK_CUR);
@@ -66,6 +91,101 @@ bool apply_logs(const string& log_path, file_t* fl) {
     fclose(log_file);
     return true;
 }
+*/
+
+// Helper function to apply logs to a specific file
+bool apply_log(const string& directory, const string& filename) {
+    string log_path = get_log_path(directory, filename);
+    string file_path = directory + "/" + filename;
+
+    // Open the log file in binary read mode
+    FILE* log_file = fopen(log_path.c_str(), "rb");
+    if (!log_file) {
+        VERBOSE_PRINT(do_verbose, "Log file " << log_path << " does not exist or cannot be opened.\n");
+        return false;
+    }
+
+    // Open the target file in binary read-write mode
+    FILE* fp = fopen(file_path.c_str(), "rb+");
+    if (!fp) {
+        VERBOSE_PRINT(do_verbose, "Target file " << file_path << " does not exist or cannot be opened.\n");
+        fclose(log_file);
+        return false;
+    }
+
+    commit_t commit_meta;
+    // Each loop, read the meta data for one commit from the log file
+    while (fread(&commit_meta, sizeof(commit_t), 1, log_file) == 1) {
+        if (commit_meta.commited) {
+            // Allocate buffer to read the data associated with this commit
+            char* buffer = new char[commit_meta.length];
+
+            /*
+            size_t bytes_read = fread(buffer, sizeof(char), commit_meta.length, log_file);
+            if (bytes_read != static_cast<size_t>(commit_meta.length)) {
+                VERBOSE_PRINT(do_verbose, "Failed to read the expected amount of data from log " << log_path << ". Expected " << commit_meta.length << " bytes, got " << bytes_read << " bytes.\n");
+                delete[] buffer;
+                fclose(log_file);
+                fclose(fp);
+                return false;
+            }
+            */
+
+            // Seek to the specified offset in the target file
+            if (fseek(fp, commit_meta.offset, SEEK_SET) != 0) {
+                VERBOSE_PRINT(do_verbose, "Failed to seek to offset " << commit_meta.offset << " in file " << file_path << ".\n");
+                delete[] buffer;
+                fclose(log_file);
+                fclose(fp);
+                return false;
+            }
+
+            // Write the data from the log to the target file
+            size_t bytes_written = fwrite(buffer, sizeof(char), commit_meta.length, fp);
+            if (bytes_written != static_cast<size_t>(commit_meta.length)) {
+                VERBOSE_PRINT(do_verbose, "Failed to write data to file " << file_path << " at offset " << commit_meta.offset << ".\n");
+                delete[] buffer;
+                fclose(log_file);
+                fclose(fp);
+                return false;
+            }
+
+            // Flush the changes to ensure data is written to disk
+            if (fflush(fp) != 0) {
+                VERBOSE_PRINT(do_verbose, "Failed to flush data to file " << file_path << " after writing.\n");
+                delete[] buffer;
+                fclose(log_file);
+                fclose(fp);
+                return false;
+            }
+
+            delete[] buffer;
+
+            if (do_verbose) {
+                VERBOSE_PRINT(do_verbose, "Applied commit to file " << file_path << " at offset " << commit_meta.offset << " for " << commit_meta.length << " bytes.\n");
+            }
+        } else {
+            // If the commit is not marked as committed, skip the data
+            if (fseek(log_file, commit_meta.length, SEEK_CUR) != 0) {
+                VERBOSE_PRINT(do_verbose, "Failed to skip uncommitted data in log " << log_path << ".\n");
+                fclose(log_file);
+                fclose(fp);
+                return false;
+            }
+        }
+    }
+
+    fclose(log_file);
+    fclose(fp);
+
+    if (do_verbose) {
+        VERBOSE_PRINT(do_verbose, "Successfully applied logs from " << log_path << " to file " << file_path << ".\n");
+    }
+
+    return true;
+}
+
+
 
 gtfs_t* gtfs_init(string directory, int verbose_flag) {
     do_verbose = verbose_flag;
@@ -91,13 +211,7 @@ gtfs_t* gtfs_init(string directory, int verbose_flag) {
     gtfs = new gtfs_t();
     gtfs->dirname = directory;
 
-    // Iterate through files in the directory and initialize logs
-    DIR* dir = opendir(directory.c_str());
-    if (!dir) {
-        VERBOSE_PRINT(do_verbose, "Failed to open directory " << directory << "\n");
-        delete gtfs;
-        return NULL;
-    }
+    /* Should initialize a way to keep track of open file structs to make implementations of clean and abort simpler*/
 
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns non NULL.
     return gtfs;
@@ -129,14 +243,6 @@ file_t* gtfs_open_file(gtfs_t* gtfs, string filename, int file_length) {
     }
     
 
-    file_t *fl = NULL;
-    if (gtfs) {
-        VERBOSE_PRINT(do_verbose, "Opening file " << filename << " inside directory " << gtfs->dirname << "\n");
-    } else {
-        VERBOSE_PRINT(do_verbose, "GTFileSystem does not exist\n");
-        return NULL;
-    }
-
     if (filename.length() > MAX_FILENAME_LEN) {
         VERBOSE_PRINT(do_verbose, "Filename exceeds maximum length\n");
         return NULL;
@@ -144,6 +250,13 @@ file_t* gtfs_open_file(gtfs_t* gtfs, string filename, int file_length) {
 
     string file_path = gtfs->dirname + "/" + filename;
     string log_path = get_log_path(gtfs->dirname, filename);
+
+    // Apply existing logs
+    /* Should double check this portion */
+    struct stat log_st;
+    if (stat(log_path.c_str(), &log_st) == 0) {
+        apply_log(gtfs->dirname, filename);
+    }
 
     // Acquire lock
     int fd = open(file_path.c_str(), O_RDWR | O_CREAT, 0644);
@@ -192,6 +305,7 @@ file_t* gtfs_open_file(gtfs_t* gtfs, string filename, int file_length) {
         }
     }
 
+
     // Memory map the file
     char* data = (char*)mmap(NULL, file_length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (data == MAP_FAILED) {
@@ -204,18 +318,11 @@ file_t* gtfs_open_file(gtfs_t* gtfs, string filename, int file_length) {
     // Initialize file_t struct
     fl = new file_t();
     fl->filename = filename;
+    fl->gtfs = gtfs;
     fl->file_length = file_length;
     fl->data = data;
     fl->log_path = log_path;
 
-    // Apply existing logs
-    /* Should double check this portion */
-    struct stat log_st;
-    if (stat(log_path.c_str(), &log_st) == 0) {
-        apply_logs(log_path, fl);
-    }
-
-    /* Delete this comment */
     // Close the file descriptor (lock remains held)
     // Note: Need to keep the fd open to maintain the lock
     //close(fd);
@@ -238,7 +345,7 @@ int gtfs_close_file(gtfs_t* gtfs, file_t* fl) {
     string log_path = get_log_path(gtfs->dirname, fl->filename);
 
     // Clean to apply any pending logs
-    if (!apply_logs(log_path, fl)) {
+    if (!apply_log(gtfs->dirname, fl->filename)) {
         VERBOSE_PRINT(do_verbose, "Failed to apply logs during close\n");
         return ret;
     }
@@ -296,6 +403,22 @@ char* gtfs_read_file(gtfs_t* gtfs, file_t* fl, int offset, int length) {
     }
     //TODO: Add any additional initializations and checks, and complete the functionality
 
+    // Check that read is valid
+    if (offset < 0 || length < 0 || offset + length > fl->file_length) {
+        VERBOSE_PRINT(do_verbose, "Invalid offset or length\n");
+        return NULL;
+    }
+
+    // Allocate memory for the read data
+    ret_data = (char*)malloc(length + 1);
+    if (!ret_data) {
+        VERBOSE_PRINT(do_verbose, "Memory allocation failed for read\n");
+        return NULL;
+    }
+
+    memcpy(ret_data, fl->data + offset, length);
+    ret_data[length] = '\0'; // Null-terminate the string
+
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns pointer to data read.
     return ret_data;
 }
@@ -311,6 +434,31 @@ write_t* gtfs_write_file(gtfs_t* gtfs, file_t* fl, int offset, int length, const
     //TODO: Add any additional initializations and checks, and complete the functionality
 
     //Modify in memmory copy of the file but not the actual file
+
+    write_id = new write_t();
+    write_id->filename = fl->filename;
+    write_id->fl = fl;
+    write_id->offset = offset;
+    write_id->length = length;
+    write_id->data = (char*)malloc(length);
+    write_id->synced = 0;
+    write_id->aborted = 0;
+    write_id->old_data = (char*)malloc(length);
+
+    if (write_id->data == NULL || write_id->old_data == NULL) {
+        VERBOSE_PRINT(do_verbose, "Could not allocate memory for write struct\n");
+        free(write_id->data);
+        free(write_id->old_data);
+        free(write_id);
+        return NULL;
+    }
+    // Copy data over to the write struct
+    memcpy(write_id->data, data, length);
+    memcpy(write_id->old_data, fl->data + offset, length);
+
+    //Write data to the in memory copy
+    memcpy(fl->data + offset, data, length);
+
 
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns non NULL.
     return write_id;
@@ -329,6 +477,57 @@ int gtfs_sync_write_file(write_t* write_id) {
     // Writes the commit to the log
     // Maybe store a strict metadata struct?
 
+    /* May need to include a reference to gtfs to have syncs work*/
+    /* Assume this works for now*/
+
+    gtfs_t *gtfs = write_id->fl->gtfs;
+    file_t *fl = write_id->fl;
+    
+    string log_path = get_log_path(gtfs->dirname, write_id->filename);
+
+    /* Need to acquire or spin until lock is obtained*/
+
+    FILE* log_file = fopen(log_path.c_str(), "ab");
+
+    commit_t commit_meta;
+    commit_meta.offset = write_id->offset;
+    commit_meta.length = write_id->length;
+    commit_meta.commited = 0;
+
+    // Write commit metadata to log
+    if (fwrite(&commit_meta, sizeof(commit_t), 1, log_file) != 1) {
+        VERBOSE_PRINT(do_verbose, "Failed to write commit metadata\n");
+        fclose(log_file);
+        return -1;
+    }
+
+    //Write the data to the log
+    if (fwrite(write_id->data, sizeof(char), write_id->length, log_file) != (size_t)write_id->length) {
+        VERBOSE_PRINT(do_verbose, "Failed to write data to log\n");
+        fclose(log_file);
+        return -1;
+    }
+
+    //Ensure that the commit is written to disk
+    fflush(log_file);
+
+    commit_meta.commited = 1;
+
+    //Set pointer back to the start of the commit message
+    fseek(log_file, -((long)write_id->length + sizeof(commit_t)), SEEK_CUR);
+    if (fwrite(&commit_meta, sizeof(commit_t), 1, log_file) != 1) {
+        VERBOSE_PRINT(do_verbose, "Failed to set commit bit in log\n");
+        fclose(log_file);
+        return -1;
+    }
+
+    fflush(log_file);
+    fclose(log_file);
+
+    write_id->synced = 1;
+    ret = write_id->length; // Set return code to the number of bytes written
+
+
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns number of bytes written.
     return ret;
 }
@@ -342,6 +541,19 @@ int gtfs_abort_write_file(write_t* write_id) {
         return ret;
     }
     //TODO: Add any additional initializations and checks, and complete the functionality
+    if (write_id->fl == NULL) {
+        VERBOSE_PRINT(do_verbose, "Write_id file does not exist\n");
+    }
+
+    if (write_id->synced) {
+        VERBOSE_PRINT(do_verbose, "Cannot abort a write that has been synced!\n");
+        return ret;
+    }
+    
+    file_t *fl = write_id->fl;
+    memcpy(fl->data + write_id->offset, write_id->old_data, write_id->length);
+    write_id->aborted = 1;
+    ret = 0;
 
     VERBOSE_PRINT(do_verbose, "Success.\n"); //On success returns 0.
     return ret;
