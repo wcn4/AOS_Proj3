@@ -42,27 +42,6 @@ string get_log_path(const string& dirname, const string& filename) {
     return dirname + "/.logs/" + filename + ".log";
 }
 
-// Helper function to write commit metadata to log
-bool write_commit_log(const string& log_path, const commit_t& commit_meta, const char* data, int length) {
-    FILE* log_file = fopen(log_path.c_str(), "ab");
-    if (!log_file) return false;
-
-    // Write commit metadata
-    if (fwrite(&commit_meta, sizeof(commit_t), 1, log_file) != 1) {
-        fclose(log_file);
-        return false;
-    }
-
-    // Write data
-    if (fwrite(data, sizeof(char), length, log_file) != (size_t)length) {
-        fclose(log_file);
-        return false;
-    }
-
-    fflush(log_file);
-    fclose(log_file);
-    return true;
-}
 
 // Helper function to apply logs 
 /*
@@ -120,22 +99,26 @@ bool apply_log(const string& directory, const string& filename) {
             // Allocate buffer to read the data associated with this commit
             char* buffer = new char[commit_meta.length];
 
-            /*
+            //Read from log after metadata is read
             size_t bytes_read = fread(buffer, sizeof(char), commit_meta.length, log_file);
+
+            //Verify that the amount read is what we expect
             if (bytes_read != static_cast<size_t>(commit_meta.length)) {
                 VERBOSE_PRINT(do_verbose, "Failed to read the expected amount of data from log " << log_path << ". Expected " << commit_meta.length << " bytes, got " << bytes_read << " bytes.\n");
+                VERBOSE_PRINT(do_verbose, "Data read: " << buffer << "(END)");
                 delete[] buffer;
                 fclose(log_file);
+                remove(log_path.c_str()); // Remove corrupted logs (prevent future logs from being corrupted)
                 fclose(fp);
                 return false;
             }
-            */
-
+            
             // Seek to the specified offset in the target file
             if (fseek(fp, commit_meta.offset, SEEK_SET) != 0) {
                 VERBOSE_PRINT(do_verbose, "Failed to seek to offset " << commit_meta.offset << " in file " << file_path << ".\n");
                 delete[] buffer;
                 fclose(log_file);
+                remove(log_path.c_str());
                 fclose(fp);
                 return false;
             }
@@ -164,6 +147,7 @@ bool apply_log(const string& directory, const string& filename) {
             if (do_verbose) {
                 VERBOSE_PRINT(do_verbose, "Applied commit to file " << file_path << " at offset " << commit_meta.offset << " for " << commit_meta.length << " bytes.\n");
             }
+            
         } else {
             // If the commit is not marked as committed, skip the data
             if (fseek(log_file, commit_meta.length, SEEK_CUR) != 0) {
@@ -177,6 +161,10 @@ bool apply_log(const string& directory, const string& filename) {
 
     fclose(log_file);
     fclose(fp);
+
+    //Delete the Log file after we are done
+    log_file = fopen(log_path.c_str(), "wb");
+    if (log_file) fclose(log_file);
 
     if (do_verbose) {
         VERBOSE_PRINT(do_verbose, "Successfully applied logs from " << log_path << " to file " << file_path << ".\n");
@@ -255,6 +243,7 @@ file_t* gtfs_open_file(gtfs_t* gtfs, string filename, int file_length) {
     /* Should double check this portion */
     struct stat log_st;
     if (stat(log_path.c_str(), &log_st) == 0) {
+        VERBOSE_PRINT(do_verbose, "Detecting logs from previous instance, recovering data\n");
         apply_log(gtfs->dirname, filename);
     }
 
@@ -419,6 +408,8 @@ char* gtfs_read_file(gtfs_t* gtfs, file_t* fl, int offset, int length) {
     memcpy(ret_data, fl->data + offset, length);
     ret_data[length] = '\0'; // Null-terminate the string
 
+    VERBOSE_PRINT(do_verbose, "Value read: " << ret_data << "(END)\n");
+
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns pointer to data read.
     return ret_data;
 }
@@ -459,6 +450,7 @@ write_t* gtfs_write_file(gtfs_t* gtfs, file_t* fl, int offset, int length, const
     //Write data to the in memory copy
     memcpy(fl->data + offset, data, length);
 
+    VERBOSE_PRINT(do_verbose, "Value written: " << data << "(END)\n");
 
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns non NULL.
     return write_id;
@@ -499,6 +491,9 @@ int gtfs_sync_write_file(write_t* write_id) {
         VERBOSE_PRINT(do_verbose, "Failed to write commit metadata\n");
         fclose(log_file);
         return -1;
+    } else {
+        VERBOSE_PRINT(do_verbose, "Wrote commit metadata to log\n");
+        VERBOSE_PRINT(do_verbose, "Commit metadata. Offset: " << commit_meta.offset << " length: " << commit_meta.length << "\n");
     }
 
     //Write the data to the log
@@ -506,6 +501,8 @@ int gtfs_sync_write_file(write_t* write_id) {
         VERBOSE_PRINT(do_verbose, "Failed to write data to log\n");
         fclose(log_file);
         return -1;
+    } else {
+        VERBOSE_PRINT(do_verbose, "Wrote data to log. Data: " << write_id->data << "(END)\n");
     }
 
     //Ensure that the commit is written to disk
@@ -519,6 +516,8 @@ int gtfs_sync_write_file(write_t* write_id) {
         VERBOSE_PRINT(do_verbose, "Failed to set commit bit in log\n");
         fclose(log_file);
         return -1;
+    } else {
+        VERBOSE_PRINT(do_verbose, "Set commit bit within log\n");
     }
 
     fflush(log_file);

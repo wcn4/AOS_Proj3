@@ -25,9 +25,11 @@ void reader() {
     string str = "Hi, I'm the writer.\n";
     char *data = gtfs_read_file(gtfs, fl, 10, str.length());
     if (data != NULL) {
-        str.compare(string(data)) == 0 ? cout << PASS : cout << FAIL;
+        //str.compare(string(data)) == 0 ? cout << PASS : cout << FAIL;
+
+        str.compare(string(data)) == 0 ? cout << PASS : cout << FAIL << " Data is: " << data << "(END)\n";
     } else {
-        cout << FAIL;
+        cout << FAIL << " Data is null!\n";
     }
     gtfs_close_file(gtfs, fl);
 }
@@ -110,6 +112,43 @@ void test_truncate_log() {
 
 }
 
+
+void test_multiple_writes() {
+    gtfs_t *gtfs = gtfs_init(directory, verbose);
+    string filename = "test4.txt";
+    file_t *fl = gtfs_open_file(gtfs, filename, 100);
+
+    string str = "Hello There!";
+    write_t *wrt1 = gtfs_write_file(gtfs, fl, 0, str.length(), str.c_str());
+    gtfs_sync_write_file(wrt1);
+
+    write_t *wrt2 = gtfs_write_file(gtfs, fl, 20, str.length(), str.c_str());
+    gtfs_sync_write_file(wrt2);
+
+    gtfs_close_file(gtfs, fl);
+
+    //Now test out the reading
+    fl = gtfs_open_file(gtfs, filename, 100);
+
+    char *data_0 = gtfs_read_file(gtfs, fl, 0, str.length());
+
+    if (data_0 != NULL) {
+        str.compare(string(data_0)) == 0 ? cout << PASS : cout << FAIL << " Data is: " << data_0 << "(END)\n";
+    } else {
+        cout << FAIL << " Data is null!\n";
+    }
+
+    char *data_1 = gtfs_read_file(gtfs, fl, 0, str.length());
+
+    if (data_1 != NULL) {
+        str.compare(string(data_1)) == 0 ? cout << PASS : cout << FAIL << " Data is: " << data_1 << "(END)\n";
+    } else {
+        cout << FAIL << " Data is null!\n";
+    }
+
+    gtfs_close_file(gtfs, fl);
+}
+
 // TODO: Implement any additional tests
 
 int main(int argc, char **argv) {
@@ -140,5 +179,9 @@ int main(int argc, char **argv) {
     test_truncate_log();
 
     // TODO: Call any additional tests
+
+    cout << "================== Test 4 ==================\n";
+    cout << "Testing multiple writes\n";
+    test_multiple_writes();
 
 }
