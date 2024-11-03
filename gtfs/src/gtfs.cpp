@@ -108,7 +108,7 @@ bool apply_log(const string& directory, const string& filename) {
                 VERBOSE_PRINT(do_verbose, "Data read: " << buffer << "(END)");
                 delete[] buffer;
                 fclose(log_file);
-                remove(log_path.c_str()); // Remove corrupted logs (prevent future logs from being corrupted)
+                //remove(log_path.c_str()); // Remove corrupted logs (prevent future logs from being corrupted)
                 fclose(fp);
                 return false;
             }
@@ -150,6 +150,7 @@ bool apply_log(const string& directory, const string& filename) {
             
         } else {
             // If the commit is not marked as committed, skip the data
+            VERBOSE_PRINT(do_verbose, "Skipping uncommitted data. Moving reader by " << commit_meta.length << " bytes. \n");
             if (fseek(log_file, commit_meta.length, SEEK_CUR) != 0) {
                 VERBOSE_PRINT(do_verbose, "Failed to skip uncommitted data in log " << log_path << ".\n");
                 fclose(log_file);
@@ -163,8 +164,9 @@ bool apply_log(const string& directory, const string& filename) {
     fclose(fp);
 
     //Delete the Log file after we are done
-    log_file = fopen(log_path.c_str(), "wb");
-    if (log_file) fclose(log_file);
+    //log_file = fopen(log_path.c_str(), "wb");
+    //if (log_file) fclose(log_file);
+    remove(log_path.c_str());
 
     if (do_verbose) {
         VERBOSE_PRINT(do_verbose, "Successfully applied logs from " << log_path << " to file " << file_path << ".\n");
@@ -308,6 +310,7 @@ file_t* gtfs_open_file(gtfs_t* gtfs, string filename, int file_length) {
     fl = new file_t();
     fl->filename = filename;
     fl->gtfs = gtfs;
+    fl->fd = fd;
     fl->file_length = file_length;
     fl->data = data;
     fl->log_path = log_path;
@@ -344,6 +347,8 @@ int gtfs_close_file(gtfs_t* gtfs, file_t* fl) {
         VERBOSE_PRINT(do_verbose, "Failed to unmap file " << fl->filename << "\n");
         return ret;
     }
+
+    release_lock(fl->fd);
 
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns 0.
     return ret;
@@ -479,12 +484,35 @@ int gtfs_sync_write_file(write_t* write_id) {
 
     /* Need to acquire or spin until lock is obtained*/
 
-    FILE* log_file = fopen(log_path.c_str(), "ab");
+    //FILE* log_file = fopen(log_path.c_str(), "ab");
+
+    //Open for both r/w in binary mode
+    FILE* log_file = fopen(log_path.c_str(), "rb+");
+
+    //Do safety checks, create file if it doesn't exist already
+    if (!log_file) {
+        log_file = fopen(log_path.c_str(), "wb+");
+        if (!log_file) {
+            VERBOSE_PRINT(do_verbose, "Failed to open log file during sync. \n");
+            fclose(log_file);
+        return -1;
+        }
+    }
+    
+
+    // Go to the end of the log file
+    if(fseek(log_file, 0, SEEK_END) != 0) {
+        VERBOSE_PRINT(do_verbose, "Failed to seek to the end of the log!\n");
+        fclose(log_file);
+        return -1;
+    }
 
     commit_t commit_meta;
     commit_meta.offset = write_id->offset;
     commit_meta.length = write_id->length;
     commit_meta.commited = 0;
+
+    VERBOSE_PRINT(do_verbose, "Size of commit: " << sizeof(commit_t) <<" bytes!\n");
 
     // Write commit metadata to log
     if (fwrite(&commit_meta, sizeof(commit_t), 1, log_file) != 1) {

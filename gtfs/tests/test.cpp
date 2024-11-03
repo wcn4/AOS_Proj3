@@ -125,7 +125,10 @@ void test_multiple_writes() {
     write_t *wrt2 = gtfs_write_file(gtfs, fl, 20, str.length(), str.c_str());
     gtfs_sync_write_file(wrt2);
 
+    //Commenting this out to manually see if the logs is writing correctly
     gtfs_close_file(gtfs, fl);
+    
+    
 
     //Now test out the reading
     fl = gtfs_open_file(gtfs, filename, 100);
@@ -147,6 +150,7 @@ void test_multiple_writes() {
     }
 
     gtfs_close_file(gtfs, fl);
+    
 }
 
 // TODO: Implement any additional tests

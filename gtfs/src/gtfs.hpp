@@ -42,6 +42,7 @@ typedef struct file {
     char *data; // In memory copy of the data
     
     //Log file path
+    int fd; // This is to allow OS flocks to be acquired and released
     string log_path;
     gtfs *gtfs; //This is to simplify sync implementation
 
