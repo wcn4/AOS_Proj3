@@ -29,6 +29,11 @@ using namespace std;
 #define MAX_FILENAME_LEN 255
 #define MAX_NUM_FILES_PER_DIR 1024
 
+//#define USE_LOGS_DIR
+
+//If not use USE_LOGS_DIR, add a . in front of each log to keep it hidden during ls
+//#define HIDDEN_LOGS 
+
 extern int do_verbose;
 
 typedef struct gtfs {

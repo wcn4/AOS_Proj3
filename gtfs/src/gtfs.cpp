@@ -4,6 +4,8 @@
     if (verbose) cout << "VERBOSE: "<< __FILE__ << ":" << __LINE__ << " " << __func__ << "(): " << str; \
 } while(0)
 
+
+
 int do_verbose;
 
 // Helper function to acquire a file lock
@@ -39,38 +41,21 @@ bool create_directory(const string& path) {
 
 // Helper function to get log file path
 string get_log_path(const string& dirname, const string& filename) {
+    #ifdef USE_LOGS_DIR
     return dirname + "/.logs/" + filename + ".log";
+    #else
+
+    #ifdef HIDDEN_LOGS
+    return dirname + "/." + filename + ".log";
+    #else
+    return dirname + "/" + filename + ".log";
+    #endif
+    
+    #endif
 }
 
 
 // Helper function to apply logs 
-/*
-bool apply_log(string directory, string filename) {
-    string log_path = get_log_path(directory, filename);
-    string file_path = directory + "/" + filename;
-
-    FILE* log_file = fopen(log_path.c_str(), "rb");
-    FILE* fp = fopen(file_path.c_str(), "rb+");
-    if (!log_file) return false;
-    if (!fp) return false;
-
-    // Opens log file, and then read commits from log and write them to the file
-    commit_t commit_meta;
-    while (fread(&commit_meta, sizeof(commit_t), 1, log_file) == 1) {
-        if (commit_meta.commited) {
-            // Apply the commit
-            // This is wrong, this should be writing to the file, not the in memory copy?
-            //memcpy(fl->data + commit_meta.offset, fl->data, commit_meta.length);
-
-        }
-        // Skip the data
-        fseek(log_file, commit_meta.length, SEEK_CUR);
-    }
-
-    fclose(log_file);
-    return true;
-}
-*/
 
 // Helper function to apply logs to a specific file
 bool apply_log(const string& directory, const string& filename) {
@@ -104,7 +89,7 @@ bool apply_log(const string& directory, const string& filename) {
 
             //Verify that the amount read is what we expect
             if (bytes_read != static_cast<size_t>(commit_meta.length)) {
-                VERBOSE_PRINT(do_verbose, "Failed to read the expected amount of data from log " << log_path << ". Expected " << commit_meta.length << " bytes, got " << bytes_read << " bytes.\n");
+                VERBOSE_PRINT(do_verbose, "Failed to read the expected amount of data from log " << log_path << " . Expected " << commit_meta.length << " bytes, got " << bytes_read << " bytes.\n");
                 VERBOSE_PRINT(do_verbose, "Data read: " << buffer << "(END)");
                 delete[] buffer;
                 fclose(log_file);
@@ -115,7 +100,7 @@ bool apply_log(const string& directory, const string& filename) {
             
             // Seek to the specified offset in the target file
             if (fseek(fp, commit_meta.offset, SEEK_SET) != 0) {
-                VERBOSE_PRINT(do_verbose, "Failed to seek to offset " << commit_meta.offset << " in file " << file_path << ".\n");
+                VERBOSE_PRINT(do_verbose, "Failed to seek to offset " << commit_meta.offset << " in file " << file_path << " .\n");
                 delete[] buffer;
                 fclose(log_file);
                 remove(log_path.c_str());
@@ -126,7 +111,7 @@ bool apply_log(const string& directory, const string& filename) {
             // Write the data from the log to the target file
             size_t bytes_written = fwrite(buffer, sizeof(char), commit_meta.length, fp);
             if (bytes_written != static_cast<size_t>(commit_meta.length)) {
-                VERBOSE_PRINT(do_verbose, "Failed to write data to file " << file_path << " at offset " << commit_meta.offset << ".\n");
+                VERBOSE_PRINT(do_verbose, "Failed to write data to file " << file_path << " at offset " << commit_meta.offset << " .\n");
                 delete[] buffer;
                 fclose(log_file);
                 fclose(fp);
@@ -152,7 +137,7 @@ bool apply_log(const string& directory, const string& filename) {
             // If the commit is not marked as committed, skip the data
             VERBOSE_PRINT(do_verbose, "Skipping uncommitted data. Moving reader by " << commit_meta.length << " bytes. \n");
             if (fseek(log_file, commit_meta.length, SEEK_CUR) != 0) {
-                VERBOSE_PRINT(do_verbose, "Failed to skip uncommitted data in log " << log_path << ".\n");
+                VERBOSE_PRINT(do_verbose, "Failed to skip uncommitted data in log " << log_path << " .\n");
                 fclose(log_file);
                 fclose(fp);
                 return false;
@@ -169,7 +154,7 @@ bool apply_log(const string& directory, const string& filename) {
     remove(log_path.c_str());
 
     if (do_verbose) {
-        VERBOSE_PRINT(do_verbose, "Successfully applied logs from " << log_path << " to file " << file_path << ".\n");
+        VERBOSE_PRINT(do_verbose, "Successfully applied logs from " << log_path << " to file " << file_path << " .\n");
     }
 
     return true;
@@ -189,12 +174,14 @@ gtfs_t* gtfs_init(string directory, int verbose_flag) {
         return NULL;
     }
 
+    #ifdef USE_LOGS_DIR
     // Create .logs directory
     string logs_dir = directory + "/.logs";
     if (!create_directory(logs_dir)) {
         VERBOSE_PRINT(do_verbose, "Failed to create or access logs directory " << logs_dir << "\n");
         return NULL;
     }
+    #endif
 
     /* Later, replace this such that it checked shared memory first to look for a gtfs instance*/
     // Initialize gtfs struct
@@ -217,8 +204,56 @@ int gtfs_clean(gtfs_t *gtfs) {
     }
     //TODO: Add any additional initializations and checks, and complete the functionality
 
-    /* This implementation should eventually use whatever datastructure within gtfs supports multiple file_t structs */
+    #ifdef USE_LOGS_DIR
+    string logs_dir = gtfs->dirname + "/.logs";
+    DIR* dir = opendir(logs_dir.c_str());
+    if (!dir) {
+        VERBOSE_PRINT(do_verbose, "Failed to open logs directory " << logs_dir << "\n");
+        return ret;
+    }
+    #else
+    string logs_dir = gtfs->dirname;
+    DIR* dir = opendir(gtfs->dirname.c_str());
+    if (!dir) {
+        VERBOSE_PRINT(do_verbose, "Failed to open " << gtfs->dirname << " during clean \n");
+        return ret;
+    }
+    #endif
 
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        string log_fname = entry->d_name;
+        if (log_fname == "." || log_fname == "..") continue;
+
+        #ifndef USE_LOGS_DIR
+        // Skip files that don't end with ".log"
+        if (log_fname.length() < 4 || log_fname.substr(log_fname.length() - 4) != ".log") {
+            continue;
+        }
+        #endif
+
+        string log_path = logs_dir + "/" + log_fname;
+        // Extract original filename
+        #ifdef USE_LOGS_DIR
+        string original_fname = log_fname.substr(0, log_fname.length() - 4);
+        #else
+
+        #ifdef HIDDEN_LOGS
+        string original_fname = log_fname.substr(1, log_fname.length() - 5); // Start from one to avoid the . and end is inclusive
+        #else
+        string original_fname = log_fname.substr(0, log_fname.length() - 4); // If not including a prefix at the front
+        #endif
+
+        #endif
+
+        if (!apply_log(gtfs->dirname, original_fname)) {
+            VERBOSE_PRINT(do_verbose, "Failed to apply log for " << original_fname << " during clean!\n");
+            VERBOSE_PRINT(do_verbose, "Log file: " << log_fname << "\n");
+            return ret;
+        }
+    
+    }
+    ret = 0;
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns 0.
     return ret;
 }

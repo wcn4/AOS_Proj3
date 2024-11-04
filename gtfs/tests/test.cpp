@@ -100,11 +100,13 @@ void test_truncate_log() {
 
     cout << "Before GTFS cleanup\n";
     system("ls -l .");
+    //system("ls -laR ."); // Manually added
 
     gtfs_clean(gtfs);
 
     cout << "After GTFS cleanup\n";
     system("ls -l .");
+    //system("ls -laR ."); // Manually added
 
     cout << "If log is truncated: " << PASS << "If exactly same output:" << FAIL;
 
