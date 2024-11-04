@@ -241,6 +241,26 @@ file_t* gtfs_open_file(gtfs_t* gtfs, string filename, int file_length) {
     string file_path = gtfs->dirname + "/" + filename;
     string log_path = get_log_path(gtfs->dirname, filename);
 
+    // Create a semaphore of name /filename_sem to see if another process has it locked
+    char sem_name[MAX_FILENAME_LEN+5];
+    snprintf(sem_name, sizeof(sem_name), "/%s_sem", filename.c_str()); 
+
+    sem_t *file_sem = sem_open(sem_name, O_CREAT, 0644, 1);
+    
+    //sem_unlink(sem_name);
+    
+    if (file_sem == SEM_FAILED) {
+        VERBOSE_PRINT(do_verbose, "Failed to create " << sem_name << "!\n");
+        return NULL;
+    }
+
+    // Acquire semaphore (does not require shared memory)
+    if (sem_wait(file_sem) != 0) {
+        VERBOSE_PRINT(do_verbose, "Error in acquring " << sem_name << "!\n");
+        return NULL;
+    }
+
+
     // Apply existing logs
     /* Should double check this portion */
     struct stat log_st;
@@ -256,11 +276,13 @@ file_t* gtfs_open_file(gtfs_t* gtfs, string filename, int file_length) {
         return NULL;
     }
 
+    //This is to access the file and make sure another process isn't cleaning / applying logs
     if (!acquire_lock(fd)) {
         VERBOSE_PRINT(do_verbose, "Failed to acquire lock on file " << file_path << "\n");
         close(fd);
         return NULL;
     }
+    
 
     // Check if file exists
     struct stat st;
@@ -314,6 +336,8 @@ file_t* gtfs_open_file(gtfs_t* gtfs, string filename, int file_length) {
     fl->file_length = file_length;
     fl->data = data;
     fl->log_path = log_path;
+    fl->file_sem = file_sem;
+    //fl->sem_name = sem_name;
 
     // Close the file descriptor (lock remains held)
     // Note: Need to keep the fd open to maintain the lock
@@ -336,12 +360,16 @@ int gtfs_close_file(gtfs_t* gtfs, file_t* fl) {
 
     string log_path = get_log_path(gtfs->dirname, fl->filename);
 
-    // Clean to apply any pending logs
-    if (!apply_log(gtfs->dirname, fl->filename)) {
-        VERBOSE_PRINT(do_verbose, "Failed to apply logs during close\n");
-        return ret;
+    struct stat log_st;
+    if (stat(log_path.c_str(), &log_st) == 0) {
+        VERBOSE_PRINT(do_verbose, "Detecting logs from previous instance, recovering data\n");
+        // Clean to apply any pending logs
+        if (!apply_log(gtfs->dirname, fl->filename)) {
+            VERBOSE_PRINT(do_verbose, "Failed to apply logs during close\n");
+            return ret;
+        }
     }
-
+    
     // Unmap the file
     if (munmap(fl->data, fl->file_length) != 0) {
         VERBOSE_PRINT(do_verbose, "Failed to unmap file " << fl->filename << "\n");
@@ -349,6 +377,12 @@ int gtfs_close_file(gtfs_t* gtfs, file_t* fl) {
     }
 
     release_lock(fl->fd);
+
+    //Release semaphore
+    if(sem_post(fl->file_sem) != 0) {
+        VERBOSE_PRINT(do_verbose, "Failed to release semaphore for " << fl->filename << "!\n");
+        return ret;
+    }
 
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns 0.
     return ret;
@@ -382,6 +416,12 @@ int gtfs_remove_file(gtfs_t* gtfs, file_t* fl) {
     remove(log_path.c_str());
 
     ret = 0;
+
+    // Close semaphore if done with file
+    if (sem_close(fl->file_sem) != 0) {
+        VERBOSE_PRINT(do_verbose, "Failed to close semaphore for: " << fl->filename << "\n");
+        return ret;
+    }
 
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns 0.
     return ret;

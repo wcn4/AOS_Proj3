@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/file.h>
 #include <sys/mman.h>
+#include <semaphore.h>
 #include <fcntl.h>
 #include <cstring>
 #include <dirent.h>
@@ -45,6 +46,9 @@ typedef struct file {
     int fd; // This is to allow OS flocks to be acquired and released
     string log_path;
     gtfs *gtfs; //This is to simplify sync implementation
+
+    sem_t *file_sem; // Semaphore used to protect underlying file
+    //char sem_name[MAX_FILENAME_LEN+5]; // Semaphore name (used to unlink the semaphore)
 
 } file_t;
 
