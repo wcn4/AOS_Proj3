@@ -383,7 +383,7 @@ file_t* gtfs_open_file(gtfs_t* gtfs, string filename, int file_length) {
     // Initialize file_t struct
     fl = new file_t();
     fl->filename = filename;
-    fl->gtfs = gtfs;
+    fl->file_gtfs = gtfs;
     fl->fd = fd;
     fl->file_length = file_length;
     fl->data = data;

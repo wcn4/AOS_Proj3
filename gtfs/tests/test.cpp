@@ -416,7 +416,7 @@ void *thread_write(void *arg) {
     int offset = thread_id * 50;
     string data = "Thread " + to_string(thread_id) + " data\n";
 
-    write_t *wrt = gtfs_write_file(fl->gtfs, fl, offset, data.length(), data.c_str());
+    write_t *wrt = gtfs_write_file(fl->file_gtfs, fl, offset, data.length(), data.c_str());
     if (wrt != NULL) {
         gtfs_sync_write_file(wrt);
     } else {
