@@ -17,6 +17,8 @@
 #include <cstring>
 #include <dirent.h>
 #include <errno.h>
+#include <signal.h>
+#include <sys/types.h>
 
 using namespace std;
 
