@@ -568,7 +568,7 @@ int gtfs_sync_write_file(write_t* write_id) {
     /* May need to include a reference to gtfs to have syncs work*/
     /* Assume this works for now*/
 
-    gtfs_t *gtfs = write_id->fl->gtfs;
+    gtfs_t *gtfs = write_id->fl->file_gtfs;
     file_t *fl = write_id->fl;
     
     string log_path = get_log_path(gtfs->dirname, write_id->filename);
